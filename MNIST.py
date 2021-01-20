@@ -106,8 +106,65 @@ print('Test accuracy', test_acc)
 # Make predictions
 
 predictions = cnn_model.predict(test_images)
-predictions[0]
- 
- 
+print(predictions[0])
+prediction  = np.argmax(predictions[0])
+print(prediction)
+
+print("Label of this digit is:", test_labels[0])
+plt.imshow(test_images[0,:,:,0], cmap=plt.cm.binary)
+
+# To visualize with a slider
+
+#@title Change the slider to look at the model's predictions! {run: "auto"}
+
+image_index = 2 #@param {type:"slider", min:0, max:100, step:1}
+plt.subplot(1,2,1)
+mdl.lab2.plot_image_prediction(image_index, predictions, test_labels, test_images)
+plt.subplot(1,2,2)
+mdl.lab2.plot_value_prediction(image_index, predictions,  test_labels)
+
+
+# Plots the first X test images, their predicted label, and the true label
+# Color correct predictions in blue, incorrect predictions in red
+
+num_rows = 5
+num_cols = 4
+num_images = num_rows*num_cols
+plt.figure(figsize=(2*2*num_cols, 2*num_rows))
+for i in range(num_images):
+  plt.subplot(num_rows, 2*num_cols, 2*i+1)
+  mdl.lab2.plot_image_prediction(i, predictions, test_labels, test_images)
+  plt.subplot(num_rows, 2*num_cols, 2*i+2)
+  mdl.lab2.plot_value_prediction(i, predictions, test_labels)
+
+ # Rebuild and train the CNN model
+
+cnn_model = build_cnn_model()
+
+batch_size = 12
+loss_history = mdl.util.LossHistory(smoothing_factor=0.95) # to record the evolution of the loss
+plotter = mdl.util.PeriodicPlotter(sec=2, xlabel='Iterations', ylabel='Loss', scale='semilogy')
+optimizer = tf.keras.optimizers.SGD(learning_rate=1e-2) # define our optimizer
+
+if hasattr(tqdm, '_instances'): tqdm._instances.clear() # clear if it exists
+
+for idx in tqdm(range(0, train_images.shape[0], batch_size)):
+  # First grab a batch of training data and convert the input images to tensors
+  (images, labels) = (train_images[idx:idx+batch_size], train_labels[idx:idx+batch_size])
+  images = tf.convert_to_tensor(images, dtype=tf.float32)
+
+  # GradientTape to record differentiation operations
+  with tf.GradientTape() as tape:
+    logits = cnn_model(images)
+    loss_value = tf.keras.backend.sparse_categorical_crossentropy(labels, logits) # TODO
+
+  loss_history.append(loss_value.numpy().mean()) # append the loss to the loss_history record
+  plotter.plot(loss_history.get())
+
+  # Backpropagation
+  # cnn_model.trainable_variables to access these parameters 
+  grads = tape.gradient(loss_value, cnn_model.trainable_variables)
+  optimizer.apply_gradients(zip(grads, cnn_model.trainable_variables))
+
  
  
