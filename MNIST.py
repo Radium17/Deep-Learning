@@ -55,7 +55,7 @@ for i in range(36):
  
  model = build_fc_model()
  
- model.compile(optimizer = tf.keras.optimizers.Adam(learnin_rate=1e-3),
+ model.compile(optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3),
                loss='sparse_categorical_crossentropy',
                metrics=['accuracy'])
 
@@ -156,7 +156,7 @@ for idx in tqdm(range(0, train_images.shape[0], batch_size)):
   # GradientTape to record differentiation operations
   with tf.GradientTape() as tape:
     logits = cnn_model(images)
-    loss_value = tf.keras.backend.sparse_categorical_crossentropy(labels, logits) # TODO
+    loss_value = tf.keras.backend.sparse_categorical_crossentropy(labels, logits) 
 
   loss_history.append(loss_value.numpy().mean()) # append the loss to the loss_history record
   plotter.plot(loss_history.get())
