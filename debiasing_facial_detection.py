@@ -246,7 +246,102 @@ class DB_VAE(tf.keras.Model):
   
 dbvae = DB_VAE(latent_dim)
 
+# Function to return the means for an input image batch
+def get_latent_mu(images, dbvae, batch_size=1024):
+  N = images.shape[0]
+  mu = np.zeros((N, latent_dim))
+  for start_ind in range(0, N, batch_zise):
 
+    end_ind = min(start_ind+batch_size, N+1)
+    batch = (images[start_ind:end_ind]).astype(np.float32)/255.
+    _, batch_mu, _ = dbvae.encode(batch)
+    mu[start_ind:end_ind] = batch_mu
+    
+    return mu
+  
+# Resampling algorithm for DB_VAE
+""" Function that recomputes the sampling probabilities for images within a batch
+    based on how they distribute across the training data. """
+
+def get_training_sample_probabilities(images, dbvae, bins=10, smoothing_fac=0.001):
+  print("Recomputing the sampling probabilities")
+  mu = get_latent_mu(images, dbvae)
+  training_sample_p = np.zeros(mu.shape[0])
+  
+  #consider the distribution for each latent variable
+  for i in range(latent_dim):
+    
+    latent_distribution = mu[:,i]
+    hist_density, bin_edges = np.histogram(latent_distribution, density=True, bins=bins)
+    
+    # find which latent bin every data sample falls in
+    bin_edges[0] = -float('inf')
+    bin_edges[-1] = float('inf')
+    
+    bin_idx = np.digitize(latent_distribution, bin_edges)
+    hist_smoothed_density = hist_density + smoothing_fac
+    hist_smoothed_density = hist_smoothed_density / np.sum(hist_smoothed_density)
+    
+    p = 1.0/(hist_smoothed_density[bin_idx-1])
+    p = p / np.sum(p)
+    
+    training_sample_p = np.maximum(p, training_sample_p)
+  
+  training_sample_p /= np.sum(training_sample_p)
+  
+  return training_sample_p
+
+    
+# Training the DB-VAE
+batch_size = 32
+learning_rate = 5e-4
+latent_dim = 100
+num_epochs = 6
+
+# Instantiate a new DB-VAE model and optimizer
+dbvae = DB_VAE(100)
+optimizer = tf.keras.optimizers.Adam(learning_rate)
+
+
+# To define the training operation, we will use tf.function which is a powerful tool 
+#   that lets us turn a Python function into a TensorFlow computation graph.
+@tf.function
+def debiasing_train_step(x, y):
+  
+  with tf.GradientTape() as tape:
+    y_logit, z_mean, z_logsigma, x_recon = dbvae(x)
+    loss, class_loss = debiasing_loss_function(x, x_recon, y, y_logit, z_mean, z_logsigma)
+  
+  grads = tape.gradient(loss, dbvae.trainable_variables)
+  optimizer.apply_gradients(zip(grads, dbvae.trainable_variables))
+  
+  return loss
+
+all_faces = loader.get_all_train_faces()
+if hasattr(tqdm, '_instances'): tqdm._instances.clear()
+  
+for i in range(num_epochs):
+  
+  IPython.display.clear_output(wait=True)
+  print("Starting epoch{}/{}".format(i+1, num_epochs))
+  p_faces = get_training_sample_probabilities(ll_faces, dbvae)
+  for j in tqdm(range(loader.get_train_size() // batch_size)):
+    (x, y) = loader.get_batch(batch_size, p_pos=p_faces)
+    loss = debiasing_train_step(x, y)
+    
+    if j % 500 == 0:
+      mdl.utils.plot_sample(x, y, dbvae)
+      
+# Evaluation of DB-VAE on test dataset
+dbvae_logits = [dbvae.predict(np.array(x, dtype=np.float32)) for x in test_faces]
+dbvae_probs = tf.squeeze(tf.sigmoid(dbvae_logits))
+
+xx = np.arange(len(keys))
+plt.bar(xx, standard_classifier_probs.numpy().mean(1), width=0.2, label="Standard CNN")
+plt.bar(xx+0.2, dbvae_probs.numpy().mean(1), width=0.2, label="DB-VAE")
+plt.xticks(xx, keys); 
+plt.title("Network predictions on test dataset")
+plt.ylabel("Probability"); plt.legend(bbox_to_anchor=(1.04,1), loc="upper left");
 
 
 
