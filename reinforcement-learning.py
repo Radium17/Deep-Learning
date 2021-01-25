@@ -239,17 +239,81 @@ ax[0].imshow(observation); ax[0].set_title('Previous Frame');
 ax[1].imshow(next_observation); ax[1].set_title('Current Frame');
 ax[2].imshow(np.squeeze(diff)); ax[2].set_title('Difference (Model Input)');
 
+def collect_rollout(batch_size, env, model, choose_action):
+  memories = []
+  for b in range(batch_size):
+    memory = Memory()
+    next_observation = env.reset()
+    previous_frame = next_observation
+    done = False # tracks whether the episode (game) is done or not
+    
+    while not done:
+      current_frame = next_observation
+      frame_diff = mdl.lab3.pong_change(previous_frame, current_frame)
+      action = choose_action(model, frame_diff)
+      next_observation, reward, done, info = env.step(action)
+      memory.add_to_memory(frame_diff, action, reward)
+      previous_frame = current_frame
+    
+    memories.append(memory)
+  return memories
 
+# Rollout with untrained Pong model
+test_model = create_pong_model()
+single_batch_size = 1
+memories = collect_rollout(single_batch_size, env, test_model, choose_action)
+rollout_video = mdl.lab3.save_video_of_memory(memories[0], "Pong-Random-Agent.mp4")
+mdl.lab3.play_video(rollout_video)
 
+# Training Pong
+learning_rate = 1e-3
+MAX_ITERS = 1000
+batch_size = 5
 
+pong_model = create_pong_model()
+optimizer = tf.keras.optimizers.Adam(learning_rate)
+iteration = 0
 
+smoothed_reward = mdl.utils.LossHistory(smoothing_factor=0.9)
+smoothed_reward.append(0) # start the reward at zero for baseline comparison
+plotter = mdl.util.PeriodicPlotter(sec=15, xlabel='Iterations', ylabel='Win Percentage (%)')
 
+# To parallelize batches, we need to make multiple copies of the environment
+envs = [create_pong_env() for _ in range(batch_size)]
 
-
-
-
-
-
-
-
-
+games_to_win_episode = 21 # this is set by OpenAI gum and cannot be changed
+while iteration < MAX_ITERS:
+  
+  plotter.plot(smoothed_reward.get())
+  tic = time.time()
+  
+  # By default, RL agent uses serial batch processing
+  # memories = collect_rollout(batch_size, env, pong_model, choose_action)
+  
+  # Parallelized version. 
+  memories = mdl.lab3.parallelized_collect_rollout(batch_size, envs, pong_model, choose_action)
+  print(time.time() - tic)
+  
+  batch_memory = aggregate_memories(memories)
+  total_wins = sum(np.array(batch_memory.rewards)==1)
+  total_games = sum(np.abs(np.array(batch_memory.rewards)))
+  win_rate = total_wins / total_games
+  smoothed_reward.append(100 * win_rate)
+  
+  # Training
+  train_step(
+      pong_model,
+      optimizer,
+      observations = np.stack(batch_memory.observations, 0),
+      actions = np.array(batch_memory.actions),
+      discounted_rewards = discount_rewards(batch_memory.rewards)
+  )
+  
+  if iteration % 100 == 0:
+    mdl.lab3.save_video_of_model(pong_model, "Pong-v0",
+                                suffix="_"+str(iteration))
+  iteration += 1
+  
+  latest_pong = mdl.lab3.save_video_of_model(
+      pong_model, "Pong-v0", suffix="_latest")
+  mdl.lab3.play_vdeo(latest_pong, width=400)
